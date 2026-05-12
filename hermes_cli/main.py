@@ -9175,7 +9175,7 @@ def _build_provider_choices() -> list[str]:
 # to parse.
 _BUILTIN_SUBCOMMANDS = frozenset(
     {
-        "acp", "auth", "backup", "checkpoints", "cc", "claw", "claude-code",
+        "acp", "auth", "backup", "checkpoints", "claw",
         "completion",
         "computer-use",
         "config", "cron", "curator", "dashboard", "debug", "doctor",
@@ -10098,32 +10098,6 @@ def main():
         ),
     )
     doctor_parser.set_defaults(func=cmd_doctor)
-
-    # =========================================================================
-    # claude-code — passthrough to Anthropic Claude Code CLI
-    # =========================================================================
-    def _cmd_claude_code_entry(args):
-        from hermes_cli.claude_code_cmd import cmd_claude_code
-
-        return cmd_claude_code(args)
-
-    claude_code_parser = subparsers.add_parser(
-        "claude-code",
-        aliases=["cc"],
-        help="Run Anthropic Claude Code CLI (claude)",
-        description=(
-            "Forward to the Claude Code ``claude`` binary on your PATH. "
-            "All tokens after this subcommand are passed through unchanged — "
-            "for example: ``hermes claude-code -p 'Summarize src' --allowedTools Read``. "
-            "Override the binary with HERMES_CLAUDE_CODE_BIN or CLAUDE_CODE_BIN."
-        ),
-    )
-    claude_code_parser.add_argument(
-        "claude_argv",
-        nargs=argparse.REMAINDER,
-        help=argparse.SUPPRESS,
-    )
-    claude_code_parser.set_defaults(func=_cmd_claude_code_entry)
 
     # =========================================================================
     # dump command

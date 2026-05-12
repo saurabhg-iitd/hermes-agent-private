@@ -4268,6 +4268,10 @@ _PENDING_INPUT_COMMANDS: frozenset[str] = frozenset(
 
 _WORKER_BLOCKED_COMMANDS: frozenset[str] = frozenset({"snapshot", "snap"})
 
+# Needs the live terminal (or gateway command.dispatch); the slash worker
+# subprocess cannot run interactive subprocesses / PTY handoffs.
+_DISPATCH_ONLY_COMMANDS: frozenset[str] = frozenset({"agent"})
+
 
 @method("commands.catalog")
 def _(rid, params: dict) -> dict:
@@ -4647,6 +4651,28 @@ def _(rid, params: dict) -> dict:
             rid,
             {"type": "send", "notice": notice, "message": state.goal},
         )
+
+    if name == "agent":
+        arg_l = (arg or "").strip().lower()
+        if arg_l != "configure":
+            return _err(rid, 4004, "usage: /agent configure")
+        try:
+            from hermes_cli.claude_code_cmd import resolve_claude_code_executable
+        except Exception as exc:
+            return _err(rid, 5030, f"claude resolver unavailable: {exc}")
+        exe = resolve_claude_code_executable()
+        lines = [
+            "TUI: interactive agent picker runs in the classic Hermes terminal.",
+            "Run:  hermes   (without --tui), then:  /agent configure",
+            "",
+        ]
+        if exe:
+            lines.append(f"Detected Claude Code at: {exe}")
+            lines.append(f"Tip: in a project directory you can run:  {exe}")
+        else:
+            lines.append("Claude Code (`claude`) was not found. Install with:")
+            lines.append("  npm install -g @anthropic-ai/claude-code")
+        return _ok(rid, {"type": "exec", "output": "\n".join(lines)})
 
     if name in {"snapshot", "snap"}:
         subcommand = arg.split(maxsplit=1)[0].lower() if arg else ""
@@ -5474,6 +5500,9 @@ def _(rid, params: dict) -> dict:
                 4018,
                 "snapshot restore mutates live config/state; use command.dispatch for /snapshot restore",
             )
+
+    if _cmd_base in _DISPATCH_ONLY_COMMANDS:
+        return _err(rid, 4018, f"use command.dispatch for /{_cmd_base}")
 
     try:
         from agent.skill_commands import get_skill_commands

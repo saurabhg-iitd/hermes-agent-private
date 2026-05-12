@@ -42,7 +42,7 @@ from urllib.parse import unquote, urlparse
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -6159,6 +6159,35 @@ class HermesCLI:
 
         return result[0]
 
+    def _schedule_run_in_terminal(self, fn: Callable[[], None]) -> None:
+        """Run ``fn`` on the real terminal while prompt_toolkit suspends the UI.
+
+        Slash commands are often dispatched from ``process_loop`` (not the main
+        thread). ``run_in_terminal`` must run on the app's asyncio loop, so we
+        schedule it with ``loop.call_soon_threadsafe`` when available.
+        """
+        import threading
+
+        app = getattr(self, "_app", None)
+        loop = getattr(app, "loop", None) if app else None
+        if loop is not None:
+            try:
+                from prompt_toolkit.application import run_in_terminal
+
+                def _wrapped() -> None:
+                    run_in_terminal(fn)
+
+                loop.call_soon_threadsafe(_wrapped)
+                return
+            except Exception as exc:
+                logger.debug(
+                    "run_in_terminal schedule failed: %s", exc, exc_info=True
+                )
+        try:
+            fn()
+        except Exception as exc:
+            logger.warning("foreground subprocess fallback failed: %s", exc)
+
     def _prompt_text_input(self, prompt_text: str) -> str | None:
         """Prompt for free-text input safely inside or outside prompt_toolkit.
 
@@ -7589,6 +7618,8 @@ class HermesCLI:
             self._handle_voice_command(cmd_original)
         elif canonical == "busy":
             self._handle_busy_command(cmd_original)
+        elif canonical == "agent":
+            self._handle_agent_command(cmd_original)
         else:
             # Check for user-defined quick commands (bypass agent loop, no LLM call)
             base_cmd = cmd_lower.split()[0]
@@ -8511,6 +8542,63 @@ class HermesCLI:
             _cprint(f"  {_DIM}{behavior}{_RST}")
         else:
             _cprint(f"  {_ACCENT}✓ Busy input mode set to '{arg}' (session only){_RST}")
+
+    def _handle_agent_command(self, cmd_original: str):
+        """Handle ``/agent configure`` — pick an external coding-agent front-end."""
+        parts = cmd_original.strip().split(maxsplit=2)
+        if len(parts) < 2:
+            _cprint("  Usage: /agent configure")
+            return
+        sub = parts[1].strip().lower()
+        if sub != "configure":
+            _cprint("  Usage: /agent configure")
+            return
+        self._agent_configure_interactive()
+
+    def _agent_configure_interactive(self) -> None:
+        """Prompt for Hermes vs Claude Code and optionally launch ``claude``."""
+        _cprint("")
+        _cprint("  [1] Hermes — stay in this chat (default)")
+        _cprint("  [2] Claude Code — Anthropic `claude` CLI (interactive; exit to return here)")
+        choice = (self._prompt_text_input("  Choice (1-2, empty=cancel): ") or "").strip()
+        if choice in {"", "1"}:
+            if choice == "1":
+                _cprint("  Keeping Hermes.")
+            return
+        if choice != "2":
+            _cprint("  Cancelled.")
+            return
+
+        try:
+            from hermes_cli.claude_code_cmd import resolve_claude_code_executable
+        except Exception as exc:
+            _cprint(f"  Could not load Claude Code helper: {exc}")
+            return
+
+        exe = resolve_claude_code_executable()
+        if not exe:
+            _cprint(
+                "  Claude Code CLI not found.\n"
+                "  Install: npm install -g @anthropic-ai/claude-code\n"
+                "  Or set HERMES_CLAUDE_CODE_BIN to your `claude` binary.",
+            )
+            return
+
+        cwd = os.getenv("TERMINAL_CWD", os.getcwd())
+
+        def _run_claude() -> None:
+            import subprocess
+
+            try:
+                subprocess.call([exe], cwd=cwd)
+            except OSError as exc:
+                print(f"  Failed to launch Claude Code: {exc}")
+
+        _cprint(
+            f"\n  Launching Claude Code in:\n    {cwd}\n"
+            "  When you quit Claude Code, you return to Hermes.\n"
+        )
+        self._schedule_run_in_terminal(_run_claude)
 
     def _handle_fast_command(self, cmd: str):
         """Handle /fast — toggle fast mode (OpenAI Priority Processing / Anthropic Fast Mode)."""

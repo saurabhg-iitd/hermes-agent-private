@@ -73,7 +73,6 @@ Examples:
     hermes dashboard              Start web UI dashboard (port 9119)
     hermes dashboard --stop       Stop running dashboard processes
     hermes dashboard --status     List running dashboard processes
-    hermes claude-code …          Run Anthropic Claude Code CLI (alias: hermes cc …)
 
 For more help on a command:
     hermes <command> --help

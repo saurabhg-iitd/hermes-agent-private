@@ -151,6 +151,14 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("busy", "Control what Enter does while Hermes is working", "Configuration",
                cli_only=True, args_hint="[queue|steer|interrupt|status]",
                subcommands=("queue", "steer", "interrupt", "status")),
+    CommandDef(
+        "agent",
+        "Pick an external coding-agent front-end (e.g. Claude Code CLI)",
+        "Configuration",
+        cli_only=True,
+        args_hint="configure",
+        subcommands=("configure",),
+    ),
 
     # Tools & Skills
     CommandDef("tools", "Manage tools: /tools [list|disable|enable] [name...]", "Tools & Skills",

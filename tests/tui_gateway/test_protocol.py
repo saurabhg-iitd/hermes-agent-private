@@ -391,6 +391,43 @@ def test_slash_exec_rejects_skill_commands(server):
     assert "skill command" in resp["error"]["message"]
 
 
+def test_slash_exec_rejects_agent_commands(server):
+    """slash.exec must reject /agent so the TUI falls through to command.dispatch."""
+    sid = "test-session"
+    server._sessions[sid] = {"session_key": sid, "agent": None}
+
+    resp = server.handle_request({
+        "id": "r-agent",
+        "method": "slash.exec",
+        "params": {"command": "agent configure", "session_id": sid},
+    })
+
+    assert "error" in resp
+    assert resp["error"]["code"] == 4018
+    assert "command.dispatch" in resp["error"]["message"]
+
+
+def test_command_dispatch_agent_configure(server):
+    """command.dispatch /agent configure returns TUI guidance."""
+    sid = "test-session"
+    server._sessions[sid] = {"session_key": sid, "agent": None}
+
+    with patch(
+        "hermes_cli.claude_code_cmd.resolve_claude_code_executable",
+        return_value="/opt/bin/claude",
+    ):
+        resp = server.handle_request({
+            "id": "r1",
+            "method": "command.dispatch",
+            "params": {"name": "agent", "arg": "configure", "session_id": sid},
+        })
+
+    assert "error" not in resp
+    assert resp["result"]["type"] == "exec"
+    assert "classic Hermes terminal" in resp["result"]["output"]
+    assert "/opt/bin/claude" in resp["result"]["output"]
+
+
 def test_slash_exec_handles_plugin_commands_in_live_gateway(server):
     """Plugin slash commands return normal slash.exec output without using the worker."""
     sid = "test-session"

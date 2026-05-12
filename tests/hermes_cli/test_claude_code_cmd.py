@@ -27,6 +27,24 @@ def test_resolve_claude_code_executable_which_name(monkeypatch):
     wh.assert_called_once_with("claude")
 
 
+def test_resolve_falls_back_to_dot_local_bin(tmp_path, monkeypatch):
+    from hermes_cli import claude_code_cmd as m
+
+    monkeypatch.delenv("HERMES_CLAUDE_CODE_BIN", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_BIN", raising=False)
+    monkeypatch.setattr(m.shutil, "which", lambda *_a, **_k: None)
+
+    home = tmp_path / "h"
+    bin_dir = home / ".local" / "bin"
+    bin_dir.mkdir(parents=True)
+    exe = bin_dir / "claude"
+    exe.write_text("#!/bin/sh\necho\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+
+    assert m.resolve_claude_code_executable() == str(exe.resolve())
+
+
 def test_cmd_claude_code_exec_invokes_claude_argv(monkeypatch):
     from hermes_cli.claude_code_cmd import cmd_claude_code
 

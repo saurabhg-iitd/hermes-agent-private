@@ -11,7 +11,34 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import List, Optional
+from pathlib import Path
+from typing import Iterable, List, Optional
+
+
+def _executable_if_present(path: Path) -> Optional[str]:
+    """Return ``path`` as a string if it exists and is executable, else ``None``."""
+    try:
+        p = path.expanduser()
+    except Exception:
+        p = path
+    try:
+        if p.is_file() and os.access(p, os.X_OK):
+            return str(p.resolve())
+    except OSError:
+        return None
+    return None
+
+
+def _well_known_claude_paths() -> Iterable[Path]:
+    """Locations often missing from a minimal PATH (e.g. ``uv run``, CI, IDEs)."""
+    home = Path.home()
+    yield home / ".local" / "bin" / "claude"
+    yield home / ".npm-global" / "bin" / "claude"
+    yield home / ".volta" / "bin" / "claude"
+    # Windows native installs sometimes land here
+    local = os.environ.get("LOCALAPPDATA", "")
+    if local:
+        yield Path(local) / "Programs" / "Claude" / "claude.exe"
 
 
 def resolve_claude_code_executable() -> Optional[str]:
@@ -20,14 +47,22 @@ def resolve_claude_code_executable() -> Optional[str]:
         override = (os.environ.get(key) or "").strip()
         if not override:
             continue
-        if os.path.isabs(override) or os.sep in override or (os.altsep and os.altsep in override):
-            if os.path.isfile(override) and os.access(override, os.X_OK):
-                return override
-        found = shutil.which(override)
+        expanded = os.path.expanduser(override)
+        if os.path.isabs(expanded) or os.sep in expanded or (os.altsep and os.altsep in expanded):
+            if os.path.isfile(expanded) and os.access(expanded, os.X_OK):
+                return expanded
+        found = shutil.which(override) or shutil.which(expanded)
         if found:
             return found
         return None
-    return shutil.which("claude")
+    found = shutil.which("claude")
+    if found:
+        return found
+    for candidate in _well_known_claude_paths():
+        resolved = _executable_if_present(candidate)
+        if resolved:
+            return resolved
+    return None
 
 
 def cmd_claude_code(args) -> None:
@@ -35,11 +70,13 @@ def cmd_claude_code(args) -> None:
     exe = resolve_claude_code_executable()
     if not exe:
         print(
-            "hermes claude-code: could not find the Claude Code CLI on PATH.\n"
+            "hermes claude-code: could not find the Claude Code CLI.\n"
             "\n"
             "Install: npm install -g @anthropic-ai/claude-code\n"
             "\n"
-            "Or set HERMES_CLAUDE_CODE_BIN to the ``claude`` executable path.",
+            "If ``claude`` is already installed (often under ~/.local/bin) but this\n"
+            "command still fails, add that directory to PATH or set:\n"
+            "  export HERMES_CLAUDE_CODE_BIN=\"$(command -v claude)\"\n",
             file=sys.stderr,
         )
         raise SystemExit(127)

@@ -8556,17 +8556,43 @@ class HermesCLI:
         self._agent_configure_interactive()
 
     def _agent_configure_interactive(self) -> None:
-        """Prompt for Hermes vs Claude Code and optionally launch ``claude``."""
-        _cprint("")
-        _cprint("  [1] Hermes — stay in this chat (default)")
-        _cprint("  [2] Claude Code — Anthropic `claude` CLI (interactive; exit to return here)")
-        choice = (self._prompt_text_input("  Choice (1-2, empty=cancel): ") or "").strip()
-        if choice in {"", "1"}:
-            if choice == "1":
-                _cprint("  Keeping Hermes.")
+        """Pick Hermes vs Claude Code using the PT-native modal (safe from process_loop).
+
+        ``_prompt_text_input`` falls back to ``input()`` on the slash worker
+        thread while prompt_toolkit owns stdin — that deadlocks the UI (#user).
+        The same modal stack as /clear confirmations runs on the UI thread.
+        """
+        # Reuse once/always/cancel token ids so Enter + typed 1/2/3 map through
+        # ``_normalize_slash_confirm_choice`` (see handle_enter slash_confirm path).
+        choices = [
+            ("once", "Hermes", "stay in this chat (default)"),
+            (
+                "always",
+                "Claude Code",
+                "launch Anthropic `claude` in the real terminal; quit to return here",
+            ),
+            ("cancel", "Cancel", "close this menu"),
+        ]
+        raw = self._prompt_text_input_modal(
+            title="/agent configure — coding front-end",
+            detail=(
+                "Choose how to work next. Claude Code needs the real terminal; "
+                "Hermes suspends the composer while it runs."
+            ),
+            choices=choices,
+        )
+        if raw is None:
+            _cprint("  /agent configure: timed out or cancelled.")
             return
-        if choice != "2":
+        pick = self._normalize_slash_confirm_choice(raw, choices)
+        if pick is None:
+            _cprint(f"  Unrecognized choice {raw!r}. Cancelled.")
+            return
+        if pick == "cancel":
             _cprint("  Cancelled.")
+            return
+        if pick == "once":
+            _cprint("  Keeping Hermes.")
             return
 
         try:

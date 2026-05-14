@@ -6313,29 +6313,47 @@ class HermesCLI:
     ) -> str | None:
         if raw is None:
             return None
-        choice_raw = raw.strip().lower()
-        if not choice_raw:
+        choice_raw_lower = raw.strip().lower()
+        if not choice_raw_lower:
             return None
-        aliases = {
-            "1": "once",
-            "once": "once",
-            "approve": "once",
-            "yes": "once",
-            "y": "once",
-            "ok": "once",
-            "2": "always",
-            "always": "always",
-            "remember": "always",
-            "3": "cancel",
-            "cancel": "cancel",
-            "nevermind": "cancel",
-            "no": "cancel",
-            "n": "cancel",
-        }
+        choice_raw = raw.strip()
         allowed = {choice[0] for choice in choices}
-        normalized = aliases.get(choice_raw)
-        if normalized in allowed:
-            return normalized
+        legacy_triad = {"once", "always", "cancel"}
+        # Destructive / MCP-confirm modals: fixed once / always / cancel contract.
+        if allowed == legacy_triad:
+            aliases = {
+                "1": "once",
+                "once": "once",
+                "approve": "once",
+                "yes": "once",
+                "y": "once",
+                "ok": "once",
+                "2": "always",
+                "always": "always",
+                "remember": "always",
+                "3": "cancel",
+                "cancel": "cancel",
+                "nevermind": "cancel",
+                "no": "cancel",
+                "n": "cancel",
+            }
+            normalized = aliases.get(choice_raw_lower)
+            if normalized in allowed:
+                return normalized
+            if choice_raw_lower in allowed:
+                return choice_raw_lower
+            return None
+
+        # Generic N-choice modals (e.g. /agent-configure): digits 1..N follow
+        # row order; otherwise match canonical keys case-insensitively.
+        keys_in_order = [choice[0] for choice in choices]
+        if choice_raw_lower.isdigit():
+            idx = int(choice_raw_lower) - 1
+            if 0 <= idx < len(keys_in_order):
+                return keys_in_order[idx]
+        for key in keys_in_order:
+            if key.lower() == choice_raw_lower:
+                return key
         if choice_raw in allowed:
             return choice_raw
         return None
@@ -6382,7 +6400,9 @@ class HermesCLI:
         for idx, (_value, label, desc) in enumerate(choices):
             marker = "❯" if idx == selected else " "
             preview_lines.extend(_wrap_panel_text(f"{marker} [{idx + 1}] {label} — {desc}", 72, subsequent_indent="    "))
-        preview_lines.append("Type 1/2/3 or use ↑/↓ then Enter. ESC/Ctrl+C cancels.")
+        preview_lines.append(
+            f"Type 1–{len(choices)} or use ↑/↓ then Enter. ESC/Ctrl+C cancels."
+        )
 
         box_width = _panel_box_width(title, preview_lines)
         inner_text_width = max(8, box_width - 2)
@@ -6416,7 +6436,13 @@ class HermesCLI:
             style = 'class:approval-selected' if idx == selected else 'class:approval-choice'
             _append_panel_line(lines, 'class:approval-border', style, wrapped, box_width)
         _append_blank_panel_line(lines, 'class:approval-border', box_width)
-        _append_panel_line(lines, 'class:approval-border', 'class:approval-cmd', 'Type 1/2/3 or use ↑/↓ then Enter. ESC/Ctrl+C cancels.', box_width)
+        _append_panel_line(
+            lines,
+            "class:approval-border",
+            "class:approval-cmd",
+            f"Type 1–{len(choices)} or use ↑/↓ then Enter. ESC/Ctrl+C cancels.",
+            box_width,
+        )
         lines.append(('class:approval-border', '╰' + ('─' * box_width) + '╯\n'))
         return lines
 
@@ -7618,8 +7644,8 @@ class HermesCLI:
             self._handle_voice_command(cmd_original)
         elif canonical == "busy":
             self._handle_busy_command(cmd_original)
-        elif canonical == "agent":
-            self._handle_agent_command(cmd_original)
+        elif canonical == "agent-configure":
+            self._agent_configure_interactive()
         else:
             # Check for user-defined quick commands (bypass agent loop, no LLM call)
             base_cmd = cmd_lower.split()[0]
@@ -8543,46 +8569,37 @@ class HermesCLI:
         else:
             _cprint(f"  {_ACCENT}✓ Busy input mode set to '{arg}' (session only){_RST}")
 
-    def _handle_agent_command(self, cmd_original: str):
-        """Handle ``/agent configure`` — pick an external coding-agent front-end."""
-        parts = cmd_original.strip().split(maxsplit=2)
-        if len(parts) < 2:
-            _cprint("  Usage: /agent configure")
-            return
-        sub = parts[1].strip().lower()
-        if sub != "configure":
-            _cprint("  Usage: /agent configure")
-            return
-        self._agent_configure_interactive()
-
     def _agent_configure_interactive(self) -> None:
-        """Pick Hermes vs Claude Code using the PT-native modal (safe from process_loop).
+        """Pick Hermes vs external coding CLIs using the PT-native modal (safe from process_loop).
 
         ``_prompt_text_input`` falls back to ``input()`` on the slash worker
         thread while prompt_toolkit owns stdin — that deadlocks the UI (#user).
         The same modal stack as /clear confirmations runs on the UI thread.
         """
-        # Reuse once/always/cancel token ids so Enter + typed 1/2/3 map through
-        # ``_normalize_slash_confirm_choice`` (see handle_enter slash_confirm path).
         choices = [
-            ("once", "Hermes", "stay in this chat (default)"),
+            ("hermes", "Hermes", "stay in this chat (default)"),
             (
-                "always",
+                "claude",
                 "Claude Code",
-                "launch Anthropic `claude` in the real terminal; quit to return here",
+                "Anthropic `claude` in the real terminal; quit to return here",
+            ),
+            (
+                "codex",
+                "Codex CLI",
+                "OpenAI `codex` in the real terminal; quit to return here",
             ),
             ("cancel", "Cancel", "close this menu"),
         ]
         raw = self._prompt_text_input_modal(
-            title="/agent configure — coding front-end",
+            title="/agent-configure — coding front-end",
             detail=(
-                "Choose how to work next. Claude Code needs the real terminal; "
-                "Hermes suspends the composer while it runs."
+                "Pick a front-end. External CLIs use the real terminal; Hermes "
+                "suspends the composer while they run."
             ),
             choices=choices,
         )
         if raw is None:
-            _cprint("  /agent configure: timed out or cancelled.")
+            _cprint("  /agent-configure: timed out or cancelled.")
             return
         pick = self._normalize_slash_confirm_choice(raw, choices)
         if pick is None:
@@ -8591,40 +8608,68 @@ class HermesCLI:
         if pick == "cancel":
             _cprint("  Cancelled.")
             return
-        if pick == "once":
+        if pick == "hermes":
             _cprint("  Keeping Hermes.")
-            return
-
-        try:
-            from hermes_cli.claude_code_cmd import resolve_claude_code_executable
-        except Exception as exc:
-            _cprint(f"  Could not load Claude Code helper: {exc}")
-            return
-
-        exe = resolve_claude_code_executable()
-        if not exe:
-            _cprint(
-                "  Claude Code CLI not found.\n"
-                "  Install: npm install -g @anthropic-ai/claude-code\n"
-                "  Or set HERMES_CLAUDE_CODE_BIN to your `claude` binary.",
-            )
             return
 
         cwd = os.getenv("TERMINAL_CWD", os.getcwd())
 
-        def _run_claude() -> None:
-            import subprocess
-
+        if pick == "claude":
             try:
-                subprocess.call([exe], cwd=cwd)
-            except OSError as exc:
-                print(f"  Failed to launch Claude Code: {exc}")
+                from hermes_cli.claude_code_cmd import resolve_claude_code_executable
+            except Exception as exc:
+                _cprint(f"  Could not load Claude Code helper: {exc}")
+                return
+            exe = resolve_claude_code_executable()
+            if not exe:
+                _cprint(
+                    "  Claude Code CLI not found.\n"
+                    "  Install: npm install -g @anthropic-ai/claude-code\n"
+                    "  Or set HERMES_CLAUDE_CODE_BIN to your `claude` binary.",
+                )
+                return
+            label = "Claude Code"
+
+            def _run() -> None:
+                import subprocess
+
+                try:
+                    subprocess.call([exe], cwd=cwd)
+                except OSError as exc:
+                    print(f"  Failed to launch {label}: {exc}")
+
+        elif pick == "codex":
+            try:
+                from hermes_cli.codex_cli_cmd import resolve_codex_cli_executable
+            except Exception as exc:
+                _cprint(f"  Could not load Codex CLI helper: {exc}")
+                return
+            exe = resolve_codex_cli_executable()
+            if not exe:
+                _cprint(
+                    "  Codex CLI not found.\n"
+                    "  Install: npm install -g @openai/codex\n"
+                    "  Or set HERMES_CODEX_BIN to your `codex` binary.",
+                )
+                return
+            label = "Codex"
+
+            def _run() -> None:
+                import subprocess
+
+                try:
+                    subprocess.call([exe], cwd=cwd)
+                except OSError as exc:
+                    print(f"  Failed to launch {label}: {exc}")
+        else:
+            _cprint(f"  Unhandled option {pick!r}. Cancelled.")
+            return
 
         _cprint(
-            f"\n  Launching Claude Code in:\n    {cwd}\n"
-            "  When you quit Claude Code, you return to Hermes.\n"
+            f"\n  Launching {label} in:\n    {cwd}\n"
+            f"  When you quit {label}, you return to Hermes.\n"
         )
-        self._schedule_run_in_terminal(_run_claude)
+        self._schedule_run_in_terminal(_run)
 
     def _handle_fast_command(self, cmd: str):
         """Handle /fast — toggle fast mode (OpenAI Priority Processing / Anthropic Fast Mode)."""

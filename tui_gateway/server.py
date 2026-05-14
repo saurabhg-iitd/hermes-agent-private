@@ -4270,7 +4270,7 @@ _WORKER_BLOCKED_COMMANDS: frozenset[str] = frozenset({"snapshot", "snap"})
 
 # Needs the live terminal (or gateway command.dispatch); the slash worker
 # subprocess cannot run interactive subprocesses / PTY handoffs.
-_DISPATCH_ONLY_COMMANDS: frozenset[str] = frozenset({"agent"})
+_DISPATCH_ONLY_COMMANDS: frozenset[str] = frozenset({"agent-configure"})
 
 
 @method("commands.catalog")
@@ -4652,26 +4652,29 @@ def _(rid, params: dict) -> dict:
             {"type": "send", "notice": notice, "message": state.goal},
         )
 
-    if name == "agent":
-        arg_l = (arg or "").strip().lower()
-        if arg_l != "configure":
-            return _err(rid, 4004, "usage: /agent configure")
+    if name == "agent-configure":
         try:
             from hermes_cli.claude_code_cmd import resolve_claude_code_executable
+            from hermes_cli.codex_cli_cmd import resolve_codex_cli_executable
         except Exception as exc:
-            return _err(rid, 5030, f"claude resolver unavailable: {exc}")
-        exe = resolve_claude_code_executable()
+            return _err(rid, 5030, f"CLI resolver unavailable: {exc}")
+        claude_exe = resolve_claude_code_executable()
+        codex_exe = resolve_codex_cli_executable()
         lines = [
             "TUI: interactive agent picker runs in the classic Hermes terminal.",
-            "Run:  hermes   (without --tui), then:  /agent configure",
+            "Run:  hermes   (without --tui), then:  /agent-configure",
             "",
         ]
-        if exe:
-            lines.append(f"Detected Claude Code at: {exe}")
-            lines.append(f"Tip: in a project directory you can run:  {exe}")
+        if claude_exe:
+            lines.append(f"Detected Claude Code at: {claude_exe}")
         else:
-            lines.append("Claude Code (`claude`) was not found. Install with:")
-            lines.append("  npm install -g @anthropic-ai/claude-code")
+            lines.append("Claude Code (`claude`) not found — npm install -g @anthropic-ai/claude-code")
+        if codex_exe:
+            lines.append(f"Detected Codex CLI at: {codex_exe}")
+        else:
+            lines.append("Codex CLI (`codex`) not found — npm install -g @openai/codex")
+        lines.append("")
+        lines.append("Tip: run the chosen CLI from a git checkout when Codex requires a repo.")
         return _ok(rid, {"type": "exec", "output": "\n".join(lines)})
 
     if name in {"snapshot", "snap"}:

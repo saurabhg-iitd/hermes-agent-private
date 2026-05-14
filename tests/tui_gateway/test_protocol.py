@@ -392,14 +392,14 @@ def test_slash_exec_rejects_skill_commands(server):
 
 
 def test_slash_exec_rejects_agent_commands(server):
-    """slash.exec must reject /agent so the TUI falls through to command.dispatch."""
+    """slash.exec must reject /agent-configure so the TUI falls through to command.dispatch."""
     sid = "test-session"
     server._sessions[sid] = {"session_key": sid, "agent": None}
 
     resp = server.handle_request({
         "id": "r-agent",
         "method": "slash.exec",
-        "params": {"command": "agent configure", "session_id": sid},
+        "params": {"command": "agent-configure", "session_id": sid},
     })
 
     assert "error" in resp
@@ -408,24 +408,28 @@ def test_slash_exec_rejects_agent_commands(server):
 
 
 def test_command_dispatch_agent_configure(server):
-    """command.dispatch /agent configure returns TUI guidance."""
+    """command.dispatch /agent-configure returns TUI guidance."""
     sid = "test-session"
     server._sessions[sid] = {"session_key": sid, "agent": None}
 
     with patch(
         "hermes_cli.claude_code_cmd.resolve_claude_code_executable",
         return_value="/opt/bin/claude",
+    ), patch(
+        "hermes_cli.codex_cli_cmd.resolve_codex_cli_executable",
+        return_value="/opt/bin/codex",
     ):
         resp = server.handle_request({
             "id": "r1",
             "method": "command.dispatch",
-            "params": {"name": "agent", "arg": "configure", "session_id": sid},
+            "params": {"name": "agent-configure", "arg": "", "session_id": sid},
         })
 
     assert "error" not in resp
     assert resp["result"]["type"] == "exec"
     assert "classic Hermes terminal" in resp["result"]["output"]
     assert "/opt/bin/claude" in resp["result"]["output"]
+    assert "/opt/bin/codex" in resp["result"]["output"]
 
 
 def test_slash_exec_handles_plugin_commands_in_live_gateway(server):

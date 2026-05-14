@@ -159,6 +159,22 @@ def test_gate_default_true_when_config_missing():
     assert result is None
 
 
+def test_normalize_slash_confirm_generic_modal_maps_digits_by_row():
+    """N-choice modals (not the legacy once/always/cancel triad) map digits by row."""
+    from cli import HermesCLI
+
+    self_ = SimpleNamespace()
+    choices = [
+        ("hermes", "Hermes", "stay"),
+        ("claude", "Claude", "cc"),
+        ("codex", "Codex", "cx"),
+        ("cancel", "Cancel", "abort"),
+    ]
+    assert _bound(HermesCLI._normalize_slash_confirm_choice, self_)("3", choices) == "codex"
+    assert _bound(HermesCLI._normalize_slash_confirm_choice, self_)("4", choices) == "cancel"
+    assert _bound(HermesCLI._normalize_slash_confirm_choice, self_)("codex", choices) == "codex"
+
+
 def test_slash_confirm_modal_number_selection_submits_without_raw_input():
     """Pressing 2 in the TUI modal should resolve to Always Approve directly."""
     from cli import HermesCLI
@@ -208,4 +224,4 @@ def test_slash_confirm_display_fragments_include_choice_mapping():
     assert "[1] Approve Once" in rendered
     assert "[2] Always Approve" in rendered
     assert "[3] Cancel" in rendered
-    assert "Type 1/2/3" in rendered
+    assert "Type 1–3" in rendered

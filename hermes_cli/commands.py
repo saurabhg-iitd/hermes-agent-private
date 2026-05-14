@@ -152,12 +152,11 @@ COMMAND_REGISTRY: list[CommandDef] = [
                cli_only=True, args_hint="[queue|steer|interrupt|status]",
                subcommands=("queue", "steer", "interrupt", "status")),
     CommandDef(
-        "agent",
-        "Pick an external coding-agent front-end (e.g. Claude Code CLI)",
+        "agent-configure",
+        "Pick an external coding CLI (Claude Code, OpenAI Codex, …)",
         "Configuration",
-        cli_only=True,
-        args_hint="configure",
-        subcommands=("configure",),
+        # cli_only=True,
+        aliases=("agent_configure",)
     ),
 
     # Tools & Skills
